@@ -41,12 +41,24 @@ class ControllerConsumer(AsyncWebsocketConsumer):
             self.close()
 
     async def disconnect(self, close_code):
+        print('here')
         # Remove the client's channel name from the list on disconnect
         if self.channel_name in users:
             users.remove(self.channel_name)
 
     async def receive(self, text_data):
         # Print the list of currently connected clients
+
+        # formate
+        """
+        {
+            "service":"upload_content",
+            "mirror_name":"demo_mirror",
+            "content":content,
+            "content_title":"demo_title",
+            "site_name":"demo_name"
+        }
+        """
 
         # Handle incoming message
         text_data_json = json.loads(text_data)
@@ -56,25 +68,28 @@ class ControllerConsumer(AsyncWebsocketConsumer):
         channel_layer = get_channel_layer()
         print(service)
 
+
+        administrator_id = self.administrator.get("_id")
         # Broadcast the message to all connected clients
         # for channel in users:
-        if service == 'upload_content':
+        if service == 'AddContent':
 
-            required_fields = ['mirror_name','content','content_title','site_name']
+            required_fields = ['mirror_id','content','content_title','content_description','site_id']
             print(text_data_json)
             if not all(field in text_data_json for field in required_fields):
                 await self.channel_layer.group_send(
                     "controller_group",
                     {
                         'type': 'update.mirror',
-                        'data': 'Required fields - mirror_name, content , content_title, site_name'
+                        'data': 'Required fields - mirror_id, content , content_title, site_id,content_description'
                     }
                 )
             else:
-                mirror_name = text_data_json['mirror_name']
+                mirror_id = text_data_json['mirror_id']
                 content = text_data_json['content']
                 content_title = text_data_json['content_title']
-                site_name = text_data_json['site_name']
+                content_description = text_data_json['content_description']
+                site_id = text_data_json['site_id']
 
                 # Remove the base64 header and decode the data
                 file_data = content.split(',')[1]  # Remove "data:<type>;base64,"
@@ -100,7 +115,7 @@ class ControllerConsumer(AsyncWebsocketConsumer):
 
                 administrator_id = self.administrator.get('_id')
                 print('admin id',administrator_id)# Query the site
-                site = sites_collection.find_one({'site_name': site_name, 'administrator_id': ObjectId(administrator_id)})
+                site = sites_collection.find_one({'_id': ObjectId(site_id)})
 
                 # Check if the site exists before proceeding
                 if site:
@@ -108,9 +123,7 @@ class ControllerConsumer(AsyncWebsocketConsumer):
                     
                     # Query the mirror using the site_id from the found site document
                     mirror = mirror_collection.find_one({
-                        'mirror_name': mirror_name,
-                        'site_id': ObjectId(site.get("_id")),
-                        'administrator_id': ObjectId(administrator_id)
+                        '_id': ObjectId(mirror_id),
                     })
                     
                     # Handle mirror not found
@@ -127,6 +140,8 @@ class ControllerConsumer(AsyncWebsocketConsumer):
                     "mirror_id":mirror.get('_id'),
                     "site_id":site.get("_id"),
                     "administrator_id":administrator_id,
+                    "content_title":content_title,
+                    "content_description":content_description,
                     "content_url":content_url,
                     "is_active":False,
                     "order":order
@@ -166,12 +181,12 @@ class ControllerConsumer(AsyncWebsocketConsumer):
                 # Optionally delete the local file after upload
                 os.remove(file_path)
 
-
         elif service == 'GetMyMirrors':
             # print
     
-            required_fields = ['site_name']
-            if not all(field in required_fields for field in text_data_json):
+            required_fields = ['site_id']
+            # print('request data ', text_data_json)
+            if not all(field in text_data_json for field in required_fields):
                 await self.channel_layer.group_send(
                     "controller_group",
                     {
@@ -180,10 +195,9 @@ class ControllerConsumer(AsyncWebsocketConsumer):
                     }
                 )
             else:
-                administrator_id = self.administrator.get("_id")
-                site_name = text_data_json['site_name']
-                site = sites_collection.find_one({'site_name':site_name})
-                MyMirrors = mirror_collection.find({'administrator_id':administrator_id, 'site_id':site.get("_id")})
+                site_id = text_data_json['site_id']
+                # site = sites_collection.find_one({'_id':site_id})
+                MyMirrors = mirror_collection.find({'administrator_id':ObjectId(administrator_id), 'site_id':ObjectId(site_id)})
 
                 MyMirrors_list = []
                 for mirror in MyMirrors:
@@ -204,6 +218,133 @@ class ControllerConsumer(AsyncWebsocketConsumer):
                             'data': MyMirrors_list
                         }
                     )
+        
+        elif service == 'GetMySites':
+            MySites = sites_collection.find({'administrator_id':administrator_id})
+
+            MySites_list = []
+            for site in MySites:
+                if '_id' in site:
+                    site['_id'] = str(site['_id'])
+                if 'administrator_id' in site:
+                    site['administrator_id'] = str(site['administrator_id'])
+                if 'site_id' in site:
+                    site['site_id'] = str(site['site_id'])
+                MySites_list.append(site)
+
+            print(MySites_list)
+            await self.channel_layer.group_send(
+                    "controller_group",
+                    {
+                        'type': 'update.controller',
+                        'data': MySites_list
+                    }
+                )
+            
+        elif service == 'GetMyContents':
+
+            required_fields = ['site_id', 'mirror_id']
+            # print('request data ', text_data_json)
+            if not all(field in text_data_json for field in required_fields):
+                await self.channel_layer.group_send(
+                    "controller_group",
+                    {
+                        'type': 'update.mirror',
+                        'data': 'Required fields - site_id, mirror_id'
+                    }
+                )
+            else:
+
+
+                site_id = text_data_json['site_id']
+                mirror_id = text_data_json['mirror_id']
+                MyContents = content_collection.find({'administrator_id':ObjectId(administrator_id), 'site_id':ObjectId(site_id), 'mirror_id':ObjectId(mirror_id)})
+
+                MyContent_list = []
+                for content in MyContents:
+                    if '_id' in content:
+                        content['_id'] = str(content['_id'])
+                    if 'administrator_id' in content:
+                        content['administrator_id'] = str(content['administrator_id'])
+                    if 'site_id' in content:
+                        content['site_id'] = str(content['site_id'])
+                    if 'mirror_id' in content:
+                        content['mirror_id'] = str(content['mirror_id'])
+                    MyContent_list.append(content)
+
+                await self.channel_layer.group_send(
+                        "controller_group",
+                        {
+                            'type': 'update.controller',
+                            'data': MyContent_list
+                        }
+                    )
+            
+        elif service == 'AddSite':
+            required_fields = ['site_description','site_name']
+            print(text_data_json)
+            if not all(field in text_data_json for field in required_fields):
+                await self.channel_layer.group_send(
+                    "controller_group",
+                    {
+                        'type': 'update.mirror',
+                        'data': 'Required fields - mirror_name, content , content_title, site_name'
+                    }
+                )
+            else:
+                site_name = text_data_json['site_name']
+                site_description = text_data_json['site_description']
+
+                # MySites = sites_collection.find({'administrator_id':administrator_id})
+                sites_collection.insert_one({
+                    "site_name":site_name,
+                    "site_description":site_description,
+                    "administrator_id":administrator_id
+                })
+                await self.channel_layer.group_send(
+                        "controller_group",
+                        {
+                            'type': 'update.controller',
+                            'data': 'ok'
+                        }
+                    )
+                
+        elif service == 'AddMirror':
+            required_fields = ['mirror_name','mirror_description','username','password', 'site_id']
+            # print(text_data_json)
+            if not all(field in text_data_json for field in required_fields):
+                await self.channel_layer.group_send(
+                    "controller_group",
+                    {
+                        'type': 'update.mirror',
+                        'data': "Required fields - 'mirror_name','mirror_description','username','password', 'site_id"
+                    }
+                )
+            else:
+                mirror_name = text_data_json['mirror_name']
+                mirror_description = text_data_json['mirror_description']
+                username = text_data_json['username']
+                password = text_data_json['password']
+                site_id = text_data_json['site_id']
+
+                # MySites = sites_collection.find({'administrator_id':administrator_id})
+                mirror_collection.insert_one({
+                    "username":username,
+                    "password":password,
+                    "administrator_id":administrator_id,
+                    "mirror_name":mirror_name,
+                    "mirror_description":mirror_description,
+                    "site_id":ObjectId(site_id)
+                })
+                await self.channel_layer.group_send(
+                        "controller_group",
+                        {
+                            'type': 'update.controller',
+                            'data': 'ok'
+                        }
+                    )
+                
+
         else:
             await self.channel_layer.group_send(
                     "controller_group",
@@ -229,6 +370,14 @@ class ControllerConsumer(AsyncWebsocketConsumer):
         
     
     async def update_mirror(self, event):
+        data = event['data']
+
+        # Send the message back to WebSocket client
+        await self.send(text_data=json.dumps({
+            'data': data
+        }))
+    
+    async def update_controller(self, event):
         data = event['data']
 
         # Send the message back to WebSocket client
