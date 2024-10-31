@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import administrators_collection, mirror_collection, sites_collection
+from .models import administrators_collection, mirror_collection, sites_collection, content_collection
 # Create your views here.
 
 class Administrator_Login(APIView):
@@ -22,13 +22,13 @@ class Administrator_Register(APIView):
     
     def post(self, request):
 
-        required_data = ['username','password','email_id','profile_image_url','contact','address_line_1','address_line_2','address_line_3']
-
-        if  not all(field in request.data for field in required_data):
-             return Response({"status_text":"requred keys 'username','password','email_id','profile_image_url','contact','address_line_1','address_line_2','address_line_3'"})
+        required_data = ['username','password','email','profile_image_url','contact','address_line_1','address_line_2','address_line_3']
+        print(request.data , )
+        if  not all(field in request.data.keys() for field in required_data):
+             return Response({"status_text":"requred keys 'username','password','email','profile_image_url','contact','address_line_1','address_line_2','address_line_3'"})
         username = request.data['username']
         password = request.data['password']
-        email_id = request.data['email_id']
+        email_id = request.data['email']
         profile_image_url = request.data['profile_image_url']
         contact = request.data['contact']
         address_line_1 = request.data['address_line_1']
@@ -56,7 +56,6 @@ class Administrator_Register(APIView):
         }
 
         administrators_collection.insert_one(administrator_data)
-        ws_secret_key = 'key'
         return Response({'status_text':'Registered Successfully','status_code':200})
             
         # return Response({'status':'UnAuthorised'})
@@ -70,8 +69,32 @@ class Mirror_Login(APIView):
         if mirror_collection.find_one({"username":username,"password":password}):
      
                 mirror = mirror_collection.find_one({"username":username,"password":password})
-                ws_secret_key = mirror.get('mirror_login_return_key')
-                return Response({'status_text':'ok','status_code':200,'ws_secret_key':ws_secret_key})
+                # mirror_id = mirror.get('_id')
+                # return Response({'status_text':'ok','status_code':200,'ws_secret_key':ws_secret_key})
+        
+                contents = content_collection.find({'mirror_id':mirror.get('_id')})
+                content_list = []
+
+                for content in contents:
+                    if '_id' in content:
+                        content['_id'] = str(content['_id'])
+                    if 'mirror_id' in content:
+                        content['mirror_id'] = str(content['mirror_id'])
+                    if 'site_id' in content:
+                        content['site_id'] = str(content['site_id'])
+                    if 'administrator_id' in content:
+                        content['administrator_id'] = str(content['administrator_id'])
+                    content_list.append(content)
+
+                    # (
+                    #     "mirror_group",
+                    #     {
+                    #         'type': 'update.mirror',
+                    #         'data': {'service':'GetMyContents','data':content_list},
+                    #     }
+                    # )
+                return Response({'status_text':'ok','status_code':200,'data':content_list})
+
             
         return Response({'status_text':'UnAuthorised','status_code':401})
     
